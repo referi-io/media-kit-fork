@@ -228,6 +228,22 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
                                            EGL_NO_CONTEXT, context_attribs);
 
       if (self->egl_context != EGL_NO_CONTEXT) {
+        // On X11, Flutter may have a GLX context active on this thread.
+        // GLX and EGL contexts cannot coexist on the same thread — clear GLX first.
+        Display* x_display = NULL;
+        GLXContext saved_glx_context = NULL;
+        GLXDrawable saved_glx_drawable = None;
+        GdkDisplay* gdk_dpy = gdk_display_get_default();
+        if (GDK_IS_X11_DISPLAY(gdk_dpy)) {
+          x_display = gdk_x11_display_get_xdisplay(gdk_dpy);
+          saved_glx_context = glXGetCurrentContext();
+          saved_glx_drawable = glXGetCurrentDrawable();
+          if (saved_glx_context != NULL) {
+            g_print("media_kit: VideoOutput: Clearing active GLX context before EGL init.\n");
+            glXMakeCurrent(x_display, None, NULL);
+          }
+        }
+
         // Make our isolated context current for initialization (surfaceless)
         if (eglMakeCurrent(self->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, self->egl_context)) {
           // Create texture with our isolated context
@@ -281,11 +297,16 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
             g_printerr("media_kit: VideoOutput: Failed to register texture.\n");
           }
 
-          // Restore Flutter's context (no-op if we used fallback path)
+          // Restore previous context
           if (flutter_context != EGL_NO_CONTEXT) {
             eglMakeCurrent(flutter_display, flutter_draw_surface, flutter_read_surface, flutter_context);
           } else {
             eglMakeCurrent(self->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+          }
+          // Restore GLX context if we cleared it
+          if (saved_glx_context != NULL && x_display != NULL) {
+            glXMakeCurrent(x_display, saved_glx_drawable, saved_glx_context);
+            g_print("media_kit: VideoOutput: GLX context restored.\n");
           }
         } else {
           g_printerr("media_kit: VideoOutput: Failed to make isolated EGL context current. Error: 0x%x\n", eglGetError());
