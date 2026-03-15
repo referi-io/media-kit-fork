@@ -198,7 +198,7 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
               EGL_BLUE_SIZE, 8,
               EGL_ALPHA_SIZE, 8,
               EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-              EGL_SURFACE_TYPE, 0,
+              EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
               EGL_NONE,
           };
           EGLint num_configs = 0;
