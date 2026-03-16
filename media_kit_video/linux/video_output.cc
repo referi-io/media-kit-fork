@@ -184,11 +184,19 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
       flutter_draw_surface = EGL_NO_SURFACE;
       flutter_read_surface = EGL_NO_SURFACE;
 
-      self->egl_display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+      // Use the SAME X11 display as Flutter/GDK to get the same EGL display handle.
+      // eglGetDisplay(EGL_DEFAULT_DISPLAY) returns a DIFFERENT display than Flutter's,
+      // making EGLImage texture sharing impossible.
+      GdkDisplay* gdk_dpy = gdk_display_get_default();
+      EGLNativeDisplayType native_display = EGL_DEFAULT_DISPLAY;
+      if (GDK_IS_X11_DISPLAY(gdk_dpy)) {
+        native_display = (EGLNativeDisplayType)gdk_x11_display_get_xdisplay(gdk_dpy);
+      }
+      self->egl_display = eglGetDisplay(native_display);
       if (self->egl_display != EGL_NO_DISPLAY) {
         EGLint major, minor;
         if (eglInitialize(self->egl_display, &major, &minor)) {
-          g_print("media_kit: VideoOutput: EGL %d.%d initialized from default display.\n", major, minor);
+          g_print("media_kit: VideoOutput: EGL %d.%d initialized from X11 display.\n", major, minor);
           eglBindAPI(EGL_OPENGL_ES_API);
 
           // Choose a standard EGL config (no Flutter config available)
