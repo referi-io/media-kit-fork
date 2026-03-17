@@ -108,4 +108,7 @@ gint64 video_output_get_texture_id(VideoOutput* self);
 
 void video_output_notify_texture_update(VideoOutput* self);
 
+gboolean video_output_needs_deferred_init(VideoOutput* self);
+gboolean video_output_deferred_init(VideoOutput* self);
+
 #endif  // VIDEO_OUTPUT_H_

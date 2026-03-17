@@ -131,10 +131,29 @@ gboolean texture_gl_populate_texture(FlTextureGL* texture,
                                      GError** error) {
   TextureGL* self = TEXTURE_GL(texture);
   VideoOutput* video_output = self->video_output;
-  
+
+  // Standalone window mode: mpv renders to its own X11 window, not here.
+  // Return a dummy black texture so Flutter's Video widget has content.
+  mpv_render_context* render_context_check = video_output_get_render_context(video_output);
+  if (render_context_check == NULL) {
+    if (self->name == 0) {
+      glGenTextures(1, &self->name);
+      glBindTexture(GL_TEXTURE_2D, self->name);
+      static const guint8 black[] = {0, 0, 0, 255};
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA,
+                   GL_UNSIGNED_BYTE, black);
+      glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    *target = GL_TEXTURE_2D;
+    *name = self->name;
+    *width = 1;
+    *height = 1;
+    return TRUE;
+  }
+
   gint32 required_width = (guint32)video_output_get_width(video_output);
   gint32 required_height = (guint32)video_output_get_height(video_output);
-  
+
   if (required_width > 0 && required_height > 0) {
     gboolean first_frame = self->name == 0 || self->fbo == 0 || self->mpv_texture == 0;
     gboolean resize = self->current_width != required_width ||
