@@ -140,46 +140,44 @@ VideoOutput* video_output_new(FlTextureRegistrar* texture_registrar,
   // mpv_set_option_string(self->handle, "video-timing-offset", "0");
   gboolean hardware_acceleration_supported = FALSE;
   if (self->configuration.enable_hardware_acceleration) {
-    // Get Flutter's current EGL display (DO NOT share context)
-    EGLDisplay flutter_display = eglGetCurrentDisplay();
-    EGLContext flutter_context = eglGetCurrentContext();
-    EGLSurface flutter_draw_surface = eglGetCurrentSurface(EGL_DRAW);
-    EGLSurface flutter_read_surface = eglGetCurrentSurface(EGL_READ);
-    
-    EGLConfig config = NULL;
+    // Detect display server type
+    GdkDisplay* gdk_dpy = gdk_display_get_default();
+    gboolean is_x11 = GDK_IS_X11_DISPLAY(gdk_dpy);
 
-    if (flutter_display != EGL_NO_DISPLAY && flutter_context != EGL_NO_CONTEXT) {
-      self->egl_display = flutter_display;
+    if (!is_x11) {
+      // Wayland: Flutter's EGL context is safe to use from any thread.
+      // Query Flutter's EGL config for shared rendering.
+      EGLDisplay flutter_display = eglGetCurrentDisplay();
+      EGLContext flutter_context = eglGetCurrentContext();
+      EGLConfig config = NULL;
 
-      // Bind OpenGL ES API (Flutter uses OpenGL ES on Linux)
-      eglBindAPI(EGL_OPENGL_ES_API);
-
-      // Query Flutter's EGL config and reuse it for compatibility
-      EGLint config_id = 0;
-
-      if (eglQueryContext(self->egl_display, flutter_context, EGL_CONFIG_ID, &config_id)) {
-        g_print("media_kit: VideoOutput: Flutter's EGL config ID: %d\n", config_id);
-
-        // Get Flutter's exact config
-        EGLint num_configs = 0;
-        EGLint config_attribs[] = { EGL_CONFIG_ID, config_id, EGL_NONE };
-
-        if (eglChooseConfig(self->egl_display, config_attribs, &config, 1, &num_configs) && num_configs > 0) {
-          g_print("media_kit: VideoOutput: Using Flutter's EGL config.\n");
+      if (flutter_display != EGL_NO_DISPLAY && flutter_context != EGL_NO_CONTEXT) {
+        self->egl_display = flutter_display;
+        eglBindAPI(EGL_OPENGL_ES_API);
+        EGLint config_id = 0;
+        if (eglQueryContext(self->egl_display, flutter_context, EGL_CONFIG_ID, &config_id)) {
+          g_print("media_kit: VideoOutput: Flutter's EGL config ID: %d\n", config_id);
+          EGLint num_configs = 0;
+          EGLint config_attribs[] = { EGL_CONFIG_ID, config_id, EGL_NONE };
+          if (eglChooseConfig(self->egl_display, config_attribs, &config, 1, &num_configs) && num_configs > 0) {
+            g_print("media_kit: VideoOutput: Using Flutter's EGL config.\n");
+          } else {
+            g_printerr("media_kit: VideoOutput: Failed to get Flutter's EGL config by ID.\n");
+            config = NULL;
+          }
         } else {
-          g_printerr("media_kit: VideoOutput: Failed to get Flutter's EGL config by ID.\n");
-          config = NULL;
+          g_printerr("media_kit: VideoOutput: Failed to query Flutter's EGL config ID.\n");
         }
-      } else {
-        g_printerr("media_kit: VideoOutput: Failed to query Flutter's EGL config ID.\n");
       }
     } else {
-      // --- STANDALONE WINDOW PATH: Flutter 3.38+ on X11 ---
-      // Flutter's EGL context lives on the raster thread, not here (platform
-      // thread has GLX). ANY eglMakeCurrent on this thread corrupts Flutter's
-      // rendering permanently. Instead of trying to share GL contexts, let mpv
-      // render to its own X11 window overlaid fullscreen on top of Flutter.
-      // This completely isolates video GL state from Flutter's GL state.
+      // --- STANDALONE WINDOW PATH: X11 (always) ---
+      // On X11, Flutter 3.38+ uses EGL on the raster thread but GLX on the
+      // platform thread. ANY eglMakeCurrent on this thread corrupts Flutter's
+      // rendering permanently. The EGL availability check is unreliable: after
+      // a warm X11 restart (without full reboot), eglGetCurrentDisplay() may
+      // return a stale/valid display from the previous session, causing us to
+      // take the EGL path and corrupt rendering. Always use standalone mpv
+      // window on X11 — it's the only proven-stable approach.
       g_print("media_kit: VideoOutput: Using standalone mpv window (X11 isolation mode).\n");
 
       // Configure mpv for standalone fullscreen window output.
